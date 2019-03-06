@@ -1,0 +1,63 @@
+--20190306 created by Jemelyn Heng
+
+--change the first column header to I_D 
+--change the second column header to UserID
+
+
+create table T0 -- create a new column Visit_Dt_Tm in DATETIME format
+(	
+	I_D	integer,
+	UserID	integer,
+	Page_ID	integer,
+	Visit_Date	date,
+	Visit_Time	time,
+	CAST(Visit_Date AS DATETIME) + CAST(Visit_Time AS DATETIME) as Visit_Dt_Tm datetime
+	);
+
+create table T1   --create a new column to rank the Visit_Date_Times of each UserID
+( select * 
+	from T0 
+	order by 
+		UserID,
+		Visit_Date,
+		Visit_Time,
+		Page_ID
+);
+
+create table T2   --create 3 new columns to show the prior row's (1) UserID, (2) Page_ID and (3) Visit_Dt_Tm by UserID
+( select *, 
+	LAG(UserID) as prev_UserId,
+	LAG(Page_ID) as prev_page_id,
+	LAG(Visit_Dt_Tm) OVER (
+        PARTITION BY UserID 
+        ORDER BY Visit_Date, Visit_Time) as prev_visit_dt_tm
+FROM  T1
+);
+
+create table T3   --create a new column to calculate the minutes difference between visit date times' of each user
+( select *, 
+	(Visit_Dt_Tm - prev_visit_dt_tm)*24 /* 24hours per day */ *60 /* 60minutes per hour */as minutes_diff
+FROM  T2
+);
+
+create table T4
+(select *,
+	case 
+		when minutes_diff is null then 1 --first Minutes_diff of each UserID will be NULL
+		when prev_UserId is null then 1  --first row of table T3's prev_UserId will be NULL
+		when prev_Page_id is null then 1 --first row of table T3's prev_Page_Id will be NULL
+		when UserID <> prev_UserId then 1 -- different users indicate different session
+		when Page_ID <> prev_Page_id then 1 -- different Page_ID indicate different session
+		when minutes_diff >=10 then 1 -- if UserID and Page_ID are the same for this row and prior row, check if the time difference was 10minutes or more
+	else 0 end as cnt
+from T3
+);
+
+select 
+  Page_ID,
+  Visit_Date,
+  sum(cnt) as User_Sessions_per_Page_per_Date
+from T4
+group by Page_ID, Visit_Date
+order by Page_ID, Visit_Date
+;
